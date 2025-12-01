@@ -12,11 +12,11 @@ import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 const publicPath = fileURLToPath(new URL("../public/", import.meta.url));
 
 // Wisp Configuration
-logging.set_level(logging.NONE);
+logging.set_level(logging.INFO);
 Object.assign(wisp.options, {
 	allow_udp_streams: false,
 	hostname_blacklist: [/example\.com/],
-	dns_servers: ["1.1.1.3", "1.0.0.3"]
+	dns_servers: ["1.1.1.1", "8.8.8.8"]
 });
 
 const fastify = Fastify({
