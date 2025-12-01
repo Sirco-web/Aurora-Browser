@@ -36,6 +36,7 @@ let devtoolsOpen = false;
 let networkRequests = [];
 let consoleMessages = [];
 let currentExtensionTab = 'installed';
+let isIncognito = false;
 
 // Extension hooks
 let requestInterceptors = [];
@@ -91,6 +92,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       get activeTabId() { return activeTabId; },
       get settings() { return settings; },
       get connection() { return connection; },
+      get isIncognito() { return isIncognito; },
       navigate,
       createTab,
       closeTab,
@@ -114,7 +116,23 @@ document.addEventListener("DOMContentLoaded", async () => {
                 console.warn("Failed to inject CSS:", e);
             }
         }
-      }
+      },
+      toggleIncognito: (state) => {
+        if (typeof state === 'boolean') isIncognito = state;
+        else isIncognito = !isIncognito;
+        
+        if (isIncognito) {
+            document.body.classList.add('incognito-mode');
+            addConsoleMessage("info", "Incognito Mode Enabled");
+        } else {
+            document.body.classList.remove('incognito-mode');
+            addConsoleMessage("info", "Incognito Mode Disabled");
+        }
+        return isIncognito;
+      },
+      // Explicit access to global scope for extensions
+      get global() { return window; },
+      get document() { return document; }
     };
 
     // Run enabled extensions
@@ -1171,6 +1189,7 @@ function saveHistoryToStorage() {
 }
 
 function addToHistory(url, title) {
+  if (isIncognito) return;
   // Don't add duplicates in a row
   if (history.length > 0 && history[0].url === url) return;
   
