@@ -18,10 +18,21 @@ const AURORA_PROTOCOL_MAPPINGS = {
 const DEFAULT_SETTINGS = {
   searchEngine: "https://www.google.com/search?q=%s",
   theme: "dark",
-  showBookmarksBar: true
+  showBookmarksBar: true,
+  performanceMode: false // Renamed from useV8Optimization
 };
 
 const DEFAULT_MARKETPLACE_INDEX = "https://sirco-web.github.io/extentions-aurora/index.json";
+
+const BUILTIN_THEMES = [
+  { id: "dark", name: "Dark (Default)" },
+  { id: "light", name: "Light" },
+  { id: "midnight", name: "Midnight Blue" },
+  { id: "forest", name: "Forest Green" },
+  { id: "sunset", name: "Sunset Orange" },
+  { id: "ocean", name: "Deep Ocean" },
+  { id: "hacker", name: "Hacker Green" }
+];
 
 // ==================== State ====================
 let tabs = [];
@@ -29,6 +40,7 @@ let activeTabId = null;
 let bookmarks = [];
 let history = [];
 let extensions = [];
+let customThemes = {}; // Store registered custom themes
 let settings = { ...DEFAULT_SETTINGS };
 let connection = null;
 let scramjet = null;
@@ -36,6 +48,8 @@ let devtoolsOpen = false;
 let networkRequests = [];
 let consoleMessages = [];
 let currentExtensionTab = 'installed';
+let isIncognito = false;
+let preIncognitoSnapshot = null; // Store main session data
 
 // Extension hooks
 let requestInterceptors = [];
@@ -47,6 +61,7 @@ const elements = {};
 // ==================== Initialization ====================
 document.addEventListener("DOMContentLoaded", async () => {
   try {
+    injectBuiltinThemes(); // Inject CSS for built-in themes
     initializeElements();
     loadSettings();
     loadBookmarks();
@@ -55,6 +70,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     applyTheme();
     setupEventListeners();
     setupKeyboardShortcuts();
+    applyPerformanceMode(); // Apply optimizations on startup
     
     // Initialize Scramjet
     try {
@@ -90,6 +106,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       get tabs() { return tabs; },
       get activeTabId() { return activeTabId; },
       get settings() { return settings; },
+      get connection() { return connection; },
+      get isIncognito() { return isIncognito; },
       navigate,
       createTab,
       closeTab,
@@ -99,20 +117,214 @@ document.addEventListener("DOMContentLoaded", async () => {
       // New hooks
       onBeforeNavigate: (callback) => requestInterceptors.push(callback),
       onTabLoaded: (callback) => tabLoadListeners.push(callback),
-      injectCSS: (tabId, css) => {
-        const tab = tabs.find(t => t.id === tabId);
-        if (tab && tab.frame) {
-            try {
-                const doc = tab.frame.contentDocument || tab.frame.contentWindow.document;
-                if (doc) {
-                    const style = doc.createElement('style');
-                    style.textContent = css;
-                    doc.head.appendChild(style);
+      registerTheme: (id, name, css) => {
+        customThemes[id] = { name, css };
+        // Refresh selector if settings page is open
+        if (elements.settingsPage && !elements.settingsPage.classList.contains("hidden")) {
+            populateSettingsPage();
+        }
+        // Re-apply if this is the active theme
+        if (settings.theme === id) {
+            applyTheme();
+        }
+        if (isIncognito) {
+            document.body.classList.add('incognito-mode');
+            addConsoleMessage("info", "Incognito Mode Enabled");
+            
+            // Hide other extension buttons
+            if (toolbar) {
+                Array.from(toolbar.children).forEach(child => {
+                    if (child.id !== incognitoBtnId) {
+                        child.style.display = 'none';
+                    }
+                });
+            }
+            
+            // 1. SNAPSHOT MAIN SESSION (Save current data)
+            preIncognitoSnapshot = {
+                localStorage: JSON.stringify(localStorage),
+                sessionStorage: JSON.stringify(sessionStorage),
+                cookies: document.cookie
+            };
+
+            // 2. CLEAR SESSION DATA (Start fresh for Incognito)
+            // We only clear Cookies/LS/SS to preserve heavy data like IDB/Cache if desired, 
+            // but for true isolation we should clear cookies/storage.
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            const cookies = document.cookie.split(";");
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i];
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+            }
+            
+            // Restore Aurora settings immediately so the browser still works
+            saveSettings();
+            saveBookmarksToStorage();
+            saveHistoryToStorage();
+            saveExtensions();
+
+        } else {
+            document.body.classList.remove('incognito-mode');
+            addConsoleMessage("info", "Incognito Mode Disabled");
+            
+            // Show other extension buttons
+            if (toolbar) {
+                Array.from(toolbar.children).forEach(child => {
+                    child.style.display = '';
+                });
+            }
+            
+            // 3. WIPE INCOGNITO DATA
+            localStorage.clear();
+            sessionStorage.clear();
+            const cookies = document.cookie.split(";");
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i];
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+            }
+
+            // 4. RESTORE MAIN SESSION
+            if (preIncognitoSnapshot) {
+                // Restore LocalStorage
+                if (preIncognitoSnapshot.localStorage) {
+                    const ls = JSON.parse(preIncognitoSnapshot.localStorage);
+                    Object.keys(ls).forEach(key => localStorage.setItem(key, ls[key]));
                 }
-            } catch(e) {
-                console.warn("Failed to inject CSS:", e);
+                // Restore SessionStorage
+                if (preIncognitoSnapshot.sessionStorage) {
+                    const ss = JSON.parse(preIncognitoSnapshot.sessionStorage);
+                    Object.keys(ss).forEach(key => sessionStorage.setItem(key, ss[key]));
+                }
+                // Restore Cookies
+                if (preIncognitoSnapshot.cookies) {
+                    const savedCookies = preIncognitoSnapshot.cookies.split(';');
+                    savedCookies.forEach(c => {
+                        if(c.trim()) document.cookie = c.trim();
+                    });
+                }
+                
+                // Re-save Aurora state to ensure any bookmarks/settings changed during incognito are kept
+                // (If you want strict incognito where settings revert, remove these lines)
+                saveSettings();
+                saveBookmarksToStorage();
+                saveHistoryToStorage();
+                saveExtensions();
+                
+                preIncognitoSnapshot = null;
+                addConsoleMessage("info", "Main session restored.");
             }
         }
+        return isIncognito;
+      },
+      // Explicit access to global scope for extensions
+      get global() { return window; },
+      get document() { return document; },
+      
+      // EXPOSED INTERNALS: Allow extensions to access and modify everything
+      elements: elements,
+      internals: {
+        // State Getters/Setters
+        get tabs() { return tabs; },
+        set tabs(v) { tabs = v; },
+        get bookmarks() { return bookmarks; },
+        set bookmarks(v) { bookmarks = v; },
+        get history() { return history; },
+        set history(v) { history = v; },
+        get extensions() { return extensions; },
+        set extensions(v) { extensions = v; },
+        
+        // Core Functions
+        initializeElements,
+        setupEventListeners,
+        setupKeyboardShortcuts,
+        createTab,
+        closeTab,
+        activateTab,
+        renderTabs,
+        navigate,
+        parseUrl,
+        proxyNavigate,
+        configureTransport,
+        setupFrameListeners,
+        updateTabUrlFromFrame,
+        navigateFromUrlBar,
+        searchFromHome,
+        updateUrlBar,
+        updateNavigationButtons,
+        goBack,
+        goForward,
+        navigateToHistoryEntry,
+        refresh,
+        showInternalPage,
+        handleRestart,
+        populateSettingsPage,
+        
+        // Data Management
+        loadBookmarks,
+        saveBookmarksToStorage,
+        renderBookmarksBar,
+        renderBookmarksPage,
+        toggleBookmarkDialog,
+        hideBookmarkDialog,
+        saveBookmark,
+        clearBookmarks,
+        loadHistory,
+        saveHistoryToStorage,
+        addToHistory,
+        renderHistoryPage,
+        clearHistory,
+        clearSiteData,
+        loadSettings,
+        saveSettings,
+        applyTheme,
+        updateBookmarksBarVisibility,
+        resetSettings,
+        
+        // Extension Management
+        loadExtensions,
+        saveExtensions,
+        installExtensionFromUrl,
+        installExtensionFromCode,
+        parseExtensionFile,
+        runExtension,
+        renderExtensionsPage,
+        renderInstalledExtensions,
+        toggleExtension,
+        deleteExtension,
+        renderMarketplacePage,
+        fetchMarketplaceIndex,
+        renderMarketplaceItems,
+        installMarketplaceUrl,
+        
+        // DevTools & UI
+        toggleDevTools,
+        switchDevToolsTab,
+        renderDevToolsContent,
+        renderDomNode,
+        addConsoleMessage,
+        renderConsoleOutput,
+        executeConsoleCommand,
+        addNetworkRequest,
+        renderNetworkList,
+        clearNetworkLog,
+        showStorageContent,
+        handleContextMenu,
+        toggleMainMenu,
+        hideMenus,
+        handleContextMenuAction,
+        handleMainMenuAction,
+        
+        // Utils
+        escapeHtml,
+        extractTitle,
+        extractFileName,
+        applyPerformanceMode
       }
     };
 
@@ -198,15 +410,37 @@ function initializeElements() {
   elements.searchEngine = document.getElementById("search-engine");
   elements.themeSelect = document.getElementById("theme-select");
   elements.showBookmarksBar = document.getElementById("show-bookmarks-bar");
+  
+  // Inject Performance Setting
+  if (!document.getElementById("performance-mode") && elements.settingsPage) {
+      const container = document.createElement("div");
+      container.className = "settings-section";
+      container.innerHTML = `
+        <h3>Performance</h3>
+        <label class="setting-item">
+            <input type="checkbox" id="performance-mode">
+            <span>Enable Game / Focus Mode</span>
+        </label>
+        <p class="setting-desc">Significantly improves speed by disabling background logs, UI effects, and prioritizing game content. Recommended for gaming.</p>
+      `;
+      // Insert before the Danger Zone or at the end
+      const dangerZone = elements.settingsPage.querySelector(".danger-zone");
+      if (dangerZone) {
+          elements.settingsPage.insertBefore(container, dangerZone);
+      } else {
+          elements.settingsPage.appendChild(container);
+      }
+  }
+  elements.performanceMode = document.getElementById("performance-mode");
 }
 
 // ==================== Event Listeners ====================
 function setupEventListeners() {
   // Navigation
-  if (elements.backBtn) elements.backBtn.addEventListener("click", goBack);
-  if (elements.forwardBtn) elements.forwardBtn.addEventListener("click", goForward);
-  if (elements.refreshBtn) elements.refreshBtn.addEventListener("click", refresh);
-  if (elements.homeBtn) elements.homeBtn.addEventListener("click", () => navigate("aurora://home"));
+  if (elements.backBtn) elements.backBtn.addEventListener("click", () => window.aurora.goBack());
+  if (elements.forwardBtn) elements.forwardBtn.addEventListener("click", () => window.aurora.goForward());
+  if (elements.refreshBtn) elements.refreshBtn.addEventListener("click", () => window.aurora.refresh());
+  if (elements.homeBtn) elements.homeBtn.addEventListener("click", () => window.aurora.navigate("aurora://home"));
   if (elements.goBtn) elements.goBtn.addEventListener("click", () => navigateFromUrlBar());
   
   if (elements.urlBar) {
@@ -221,7 +455,7 @@ function setupEventListeners() {
   // Toolbar
   if (elements.bookmarkBtn) elements.bookmarkBtn.addEventListener("click", toggleBookmarkDialog);
   if (elements.devtoolsBtn) elements.devtoolsBtn.addEventListener("click", toggleDevTools);
-  if (elements.settingsBtn) elements.settingsBtn.addEventListener("click", () => navigate("aurora://settings"));
+  if (elements.settingsBtn) elements.settingsBtn.addEventListener("click", () => window.aurora.navigate("aurora://settings"));
   
   if (elements.menuBtn) {
     elements.menuBtn.addEventListener("click", (e) => {
@@ -242,7 +476,7 @@ function setupEventListeners() {
   document.querySelectorAll(".quick-link").forEach(link => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
-      navigate(link.dataset.url);
+      window.aurora.navigate(link.dataset.url);
     });
   });
   
@@ -326,6 +560,14 @@ function setupEventListeners() {
       updateBookmarksBarVisibility();
     });
   }
+
+  if (elements.performanceMode) {
+    elements.performanceMode.addEventListener("change", () => {
+        settings.performanceMode = elements.performanceMode.checked;
+        saveSettings();
+        applyPerformanceMode();
+    });
+  }
   
   const clearHistoryBtn = document.getElementById("clear-history");
   if (clearHistoryBtn) clearHistoryBtn.addEventListener("click", clearHistory);
@@ -406,8 +648,114 @@ function setupKeyboardShortcuts() {
   }, true);
 }
 
+function applyPerformanceMode() {
+  // Remove old styles
+  const oldStyle = document.getElementById('perf-styles');
+  if (oldStyle) oldStyle.remove();
+  const v8Style = document.getElementById('v8-styles');
+  if (v8Style) v8Style.remove();
+
+  if (settings.performanceMode) {
+      document.body.classList.add('perf-mode');
+      
+      // Inject CSS to kill expensive UI effects and hide clutter
+      const style = document.createElement('style');
+      style.id = 'perf-styles';
+      style.textContent = `
+          body.perf-mode * {
+              backdrop-filter: none !important;
+              box-shadow: none !important;
+              text-shadow: none !important;
+              transition: none !important;
+              border-radius: 0 !important;
+          }
+          /* Hide Tab Bar */
+          body.perf-mode #tabs-container {
+              display: none !important;
+          }
+          /* Hide Extensions Toolbar */
+          body.perf-mode #extensions-toolbar {
+              display: none !important;
+          }
+          /* Optimize Frame */
+          body.perf-mode .browser-frame {
+              transform: translateZ(0);
+              will-change: transform;
+          }
+      `;
+      document.head.appendChild(style);
+
+      // 1. Enforce Single Tab
+      if (tabs.length > 1) {
+          const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+          // Close others
+          tabs = [activeTab];
+          activeTabId = activeTab.id;
+          
+          // Remove other frames from DOM
+          const frames = document.querySelectorAll('.browser-frame');
+          frames.forEach(f => {
+              if (f.id !== 'frame-' + activeTab.id) f.remove();
+          });
+          
+          renderTabs();
+      }
+      
+      // 2. Disable Extensions (Clear hooks)
+      requestInterceptors = [];
+      tabLoadListeners = [];
+      
+      // 3. Clear Logs
+      consoleMessages = [];
+      networkRequests = [];
+      renderConsoleOutput();
+      renderNetworkList();
+      
+      // 4. Slow polling
+      tabs.forEach(tab => {
+          if (tab.urlPollingInterval) {
+              clearInterval(tab.urlPollingInterval);
+              tab.urlPollingInterval = setInterval(() => {
+                  if (tab.frame) updateTabUrlFromFrame(tab.frame, tab);
+              }, 5000);
+          }
+      });
+
+      // Force one message
+      consoleMessages.push({ type: "info", message: "Game Mode Active: Single tab, extensions disabled, UI optimized.", timestamp: Date.now() });
+      renderConsoleOutput();
+
+  } else {
+      document.body.classList.remove('perf-mode');
+      
+      // Restore polling
+      tabs.forEach(tab => {
+          if (tab.urlPollingInterval) {
+              clearInterval(tab.urlPollingInterval);
+              tab.urlPollingInterval = setInterval(() => {
+                  if (tab.frame) updateTabUrlFromFrame(tab.frame, tab);
+              }, 2000);
+          }
+      });
+      
+      // Restore extensions
+      requestInterceptors = [];
+      tabLoadListeners = [];
+      extensions.forEach(ext => {
+        if (ext.enabled) runExtension(ext);
+      });
+      
+      addConsoleMessage("info", "Game Mode Disabled.");
+  }
+}
+
 // ==================== Tab Management ====================
 function createTab(url = "aurora://home", title = "New Tab") {
+  if (settings.performanceMode && tabs.length >= 1) {
+      alert("Game Mode is active. Only one tab is allowed.");
+      return null;
+  }
+
   const tabId = "tab-" + Date.now();
   const tab = {
     id: tabId,
@@ -636,6 +984,10 @@ async function proxyNavigate(url, tabId = activeTabId, displayUrl = null) {
     tab.frame = tab.scramjetFrame.frame;
     tab.frame.className = "browser-frame";
     tab.frame.id = "frame-" + tab.id;
+    
+    // OPTIMIZATION: Grant full permissions to the iframe for games
+    tab.frame.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen; camera; microphone; midi; gamepad";
+    
     elements.frameContainer.appendChild(tab.frame);
     
     // Set up frame event listeners
@@ -650,7 +1002,7 @@ async function proxyNavigate(url, tabId = activeTabId, displayUrl = null) {
   // Update tab state
   tab.url = displayUrl || url;
   tab.title = extractTitle(url);
-  tab.favicon = "🌐";
+  tab.favicon = "🌐"; // Default to globe, wait for load to get real icon
   
   // Update history
   const historyUrl = displayUrl || url;
@@ -692,8 +1044,33 @@ function setupFrameListeners(frame, tab) {
     try {
       // Try to get the title from the loaded page
       const doc = frame.contentDocument || frame.contentWindow?.document;
-      if (doc && doc.title) {
-        tab.title = doc.title;
+      if (doc) {
+        if (doc.title) {
+          tab.title = doc.title;
+        }
+        
+        // Try to get the real favicon from the page
+        const links = doc.querySelectorAll("link[rel*='icon']");
+        let iconUrl = null;
+        for (const link of links) {
+            if (link.href) {
+                iconUrl = link.href;
+                break;
+            }
+        }
+        
+        // Fallback: try default /favicon.ico if no link tag
+        if (!iconUrl && doc.location) {
+            try {
+                // Resolve against the document's current location
+                iconUrl = new URL("/favicon.ico", doc.location.href).href;
+            } catch (e) {}
+        }
+        
+        if (iconUrl) {
+            tab.favicon = `<img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle; border-radius: 2px;" onerror="this.parentElement.innerHTML='🌐'">`;
+        }
+        
         renderTabs();
       }
       
@@ -718,9 +1095,10 @@ function setupFrameListeners(frame, tab) {
   // Poll for URL changes every 2 seconds
   if (tab.urlPollingInterval) clearInterval(tab.urlPollingInterval);
   
+  const pollInterval = settings.performanceMode ? 5000 : 2000;
   tab.urlPollingInterval = setInterval(() => {
     updateTabUrlFromFrame(frame, tab);
-  }, 2000);
+  }, pollInterval);
 }
 
 function updateTabUrlFromFrame(frame, tab) {
@@ -787,23 +1165,23 @@ function navigateFromUrlBar() {
   
   // Check if it starts with aurora://
   if (url.startsWith("aurora://")) {
-    navigate(url);
+    window.aurora.navigate(url);
   } else if (!input.includes("://") && !input.includes(".")) {
     // Could be an aurora:// URL shorthand
     if (AURORA_PROTOCOL_MAPPINGS[input]) {
-      navigate("aurora://" + input);
+      window.aurora.navigate("aurora://" + input);
     } else {
-      navigate(input);
+      window.aurora.navigate(input);
     }
   } else {
-    navigate(input);
+    window.aurora.navigate(input);
   }
 }
 
 function searchFromHome() {
   if (!elements.homeSearch) return;
   const query = elements.homeSearch.value.trim();
-  if (query) navigate(query);
+  if (query) window.aurora.navigate(query);
 }
 
 function updateUrlBar(url) {
@@ -1017,6 +1395,7 @@ function populateSettingsPage() {
   if (elements.searchEngine) elements.searchEngine.value = settings.searchEngine;
   if (elements.themeSelect) elements.themeSelect.value = settings.theme;
   if (elements.showBookmarksBar) elements.showBookmarksBar.checked = settings.showBookmarksBar;
+  if (elements.performanceMode) elements.performanceMode.checked = settings.performanceMode;
 }
 
 // ==================== Bookmarks ====================
@@ -1049,7 +1428,7 @@ function renderBookmarksBar() {
       <span class="bookmark-favicon">${bookmark.favicon || "📄"}</span>
       <span>${escapeHtml(bookmark.name)}</span>
     `;
-    item.addEventListener("click", () => navigate(bookmark.url));
+    item.addEventListener("click", () => window.aurora.navigate(bookmark.url));
     item.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       if (confirm(`Delete bookmark "${bookmark.name}"?`)) {
@@ -1084,7 +1463,7 @@ function renderBookmarksPage() {
     `;
     
     item.querySelector(".bookmark-full-title").addEventListener("click", () => {
-      navigate(bookmark.url);
+      window.aurora.navigate(bookmark.url);
     });
     
     item.querySelector(".bookmark-delete").addEventListener("click", () => {
@@ -1132,16 +1511,17 @@ function saveBookmark() {
   
   if (!name || !url) return;
   
+  const tab = tabs.find(t => t.id === activeTabId);
+  
   bookmarks.push({
     name: name,
     url: url,
-    favicon: url.startsWith("aurora://") ? "🌌" : "🌐"
+    favicon: tab && tab.favicon ? tab.favicon : (url.startsWith("aurora://") ? "🌌" : "🌐")
   });
   
   saveBookmarksToStorage();
   hideBookmarkDialog();
   
-  const tab = tabs.find(t => t.id === activeTabId);
   if (tab) updateUrlBar(tab.url);
 }
 
@@ -1170,6 +1550,7 @@ function saveHistoryToStorage() {
 }
 
 function addToHistory(url, title) {
+  if (isIncognito) return;
   // Don't add duplicates in a row
   if (history.length > 0 && history[0].url === url) return;
   
@@ -1211,7 +1592,7 @@ function renderHistoryPage() {
     `;
     
     historyItem.querySelector(".history-title").addEventListener("click", () => {
-      navigate(item.url);
+      window.aurora.navigate(item.url);
     });
     
     historyItem.querySelector(".history-delete").addEventListener("click", () => {
@@ -1232,6 +1613,47 @@ function clearHistory() {
   }
 }
 
+async function clearSiteData() {
+  try {
+    // Clear Cookies
+    const cookies = document.cookie.split(";");
+    for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+    }
+
+    // Clear Storage (preserving Aurora data)
+    localStorage.clear();
+    sessionStorage.clear();
+    
+    // Restore Aurora Data immediately
+    saveSettings();
+    saveBookmarksToStorage();
+    saveHistoryToStorage();
+    saveExtensions();
+
+    // Clear Caches (Service Workers)
+    if (window.caches) {
+        const keys = await window.caches.keys();
+        await Promise.all(keys.map(key => window.caches.delete(key)));
+    }
+
+    // Clear IndexedDB (if supported)
+    if (window.indexedDB && window.indexedDB.databases) {
+        const dbs = await window.indexedDB.databases();
+        for (const db of dbs) {
+            window.indexedDB.deleteDatabase(db.name);
+        }
+    }
+    
+    addConsoleMessage("info", "Site data cleared (Cookies, Storage, Cache)");
+  } catch (e) {
+    console.error("Failed to clear site data:", e);
+  }
+}
+
 // ==================== Settings ====================
 function loadSettings() {
   try {
@@ -1248,8 +1670,13 @@ function saveSettings() {
 }
 
 function applyTheme() {
-  document.body.className = ""; // Clear existing classes
-  if (settings.theme !== "dark") {
+  // Safely remove existing theme classes without clearing other classes (like perf-mode or incognito-mode)
+  const classes = Array.from(document.body.classList);
+  classes.forEach(c => {
+    if (c.endsWith('-theme')) document.body.classList.remove(c);
+  });
+
+  if (settings.theme && settings.theme !== "dark") {
     document.body.classList.add(`${settings.theme}-theme`);
   }
 }
@@ -1403,6 +1830,8 @@ function parseExtensionFile(content) {
 }
 
 function runExtension(ext) {
+  if (settings.performanceMode) return; // Disable extensions in Game Mode
+
   try {
     // Execute in global scope using a script tag to ensure access to window
     const script = document.createElement('script');
@@ -1569,6 +1998,30 @@ function renderInstalledExtensions() {
   }
 }
 
+function toggleExtension(id, enabled) {
+  const ext = extensions.find(e => e.id === id);
+  if (!ext) return;
+  
+  ext.enabled = enabled;
+  saveExtensions();
+  
+  if (enabled) {
+    // Run the extension if enabled
+    runExtension(ext);
+  } else {
+    // Optionally, you can stop the extension's functionality here
+    // For example, if it registers any background tasks or listeners
+  }
+}
+
+function deleteExtension(id) {
+  if (!confirm("Are you sure you want to delete this extension?")) return;
+  
+  extensions = extensions.filter(e => e.id !== id);
+  saveExtensions();
+  renderExtensionsPage();
+}
+
 // MARK: Marketplace functions
 
 async function renderMarketplacePage() {
@@ -1632,7 +2085,7 @@ function renderMarketplaceItems(items, indexUrl) {
         <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
           <div>
             ${installed ? `<button class="settings-btn" disabled style="margin-right:8px;">Installed</button>` : ""}
-            <button class="settings-btn marketplace-install" data-url="${escapeHtml(item.file || item.fileUrl || item.url || "")}">
+            <button class="settings-btn marketplace-install" data-url="${escapeHtml(item.fileUrl || item.url || item.file || "")}">
               ${installed ? (updateAvailable ? "Update" : "Reinstall") : "Install"}
             </button>
           </div>
@@ -1652,9 +2105,29 @@ function renderMarketplaceItems(items, indexUrl) {
         
         // Resolve relative URLs against index URL
         try {
-           fileUrl = new URL(fileUrl, indexUrl).href;
+           let baseUrl = indexUrl;
+           // Explicitly handle index.json removal as requested to get the base directory
+           if (baseUrl.toLowerCase().endsWith('/index.json')) {
+               baseUrl = baseUrl.substring(0, baseUrl.length - 'index.json'.length);
+           } else {
+               // Fallback to directory of URL if not ending in index.json
+               baseUrl = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
+           }
+
+           // Remove leading slash from fileUrl to make it relative to baseUrl
+           // e.g. /files/AdBlock.txt -> files/AdBlock.txt
+           const relativePath = fileUrl.startsWith('/') ? fileUrl.substring(1) : fileUrl;
+           
+           // Handle absolute URLs in fileUrl
+           if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+               // do nothing, it's absolute
+           } else {
+               fileUrl = new URL(relativePath, baseUrl).href;
+           }
+           
+           addConsoleMessage("info", `Downloading extension from: ${fileUrl}`);
         } catch(e) {
-           // keep original if fails
+           console.error("URL resolution error:", e);
         }
 
         btn.disabled = true;
@@ -1679,7 +2152,7 @@ function renderMarketplaceItems(items, indexUrl) {
 
 async function installMarketplaceUrl(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch extension file");
+  if (!res.ok) throw new Error(`Failed to fetch extension file (${res.status})`);
   const content = await res.text();
   const { metadata, code } = parseExtensionFile(content);
 
@@ -1787,7 +2260,16 @@ function renderDomNode(node, depth = 0) {
 }
 
 function addConsoleMessage(type, message) {
+  // PERFORMANCE: Stop logging if mode is active (unless it's an error)
+  if (settings.performanceMode && type !== 'error') return;
+
   consoleMessages.push({ type, message, timestamp: Date.now() });
+  
+  // Limit memory usage
+  if (consoleMessages.length > 500) {
+      consoleMessages.shift();
+  }
+  
   renderConsoleOutput();
 }
 
@@ -1831,6 +2313,9 @@ function executeConsoleCommand() {
 }
 
 function addNetworkRequest(url, type, status = 200, size = "-", time = "-") {
+  // PERFORMANCE: Stop network logging completely in performance mode
+  if (settings.performanceMode) return;
+
   networkRequests.push({
     url: url,
     type: type,
@@ -1839,6 +2324,11 @@ function addNetworkRequest(url, type, status = 200, size = "-", time = "-") {
     time: time,
     timestamp: Date.now()
   });
+  
+  if (networkRequests.length > 500) {
+      networkRequests.shift();
+  }
+
   renderNetworkList();
 }
 
@@ -1870,7 +2360,7 @@ function showStorageContent(type) {
   if (activeItem) activeItem.classList.add("active");
   
   const content = document.getElementById("application-content");
-  if (!content) return;
+   if (!content) return;
   
   let html = `<table style="width: 100%; font-size: 12px; border-collapse: collapse;">
     <tr style="text-align: left; border-bottom: 1px solid var(--border-color);">
@@ -1915,7 +2405,7 @@ function showStorageContent(type) {
               const parts = c.trim().split('=');
               const key = parts[0];
               const value = parts.slice(1).join('=');
-              html += `<tr><td style="padding: 4px;">${escapeHtml(key)}</td><td style="padding: 4px;">${escapeHtml(value.substring(0, 100))}</td></tr>`;
+                           html += `<tr><td style="padding: 4px;">${escapeHtml(key)}</td><td style="padding: 4px;">${escapeHtml(value.substring(0, 100))}</td></tr>`;
             });
           } else {
              html += `<tr><td colspan="2" style="padding: 4px;">No cookies found</td></tr>`;

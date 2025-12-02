@@ -1,32 +1,68 @@
 <p align="center"><img src="https://raw.githubusercontent.com/titaniumnetwork-dev/Ultraviolet-Static/main/public/uv.png" height="200"></p>
 
-<h1 align="center">Ultraviolet-App</h1>
+<h1 align="center">Aurora Browser</h1>
 
-> [!CAUTION]
-> Please note that this project isn't really maintained anymore before making issues! It has been superseded by [Scramjet](https://github.com/MercuryWorkshop/scramjet). An example application setup can be found [here](https://github.com/MercuryWorkshop/Scramjet-App).
+<p align="center">
+  A sophisticated, Chrome-like web proxy browser interface built on Scramjet technology.
+</p>
 
-The deployable all-in-one bundle for [Ultraviolet](https://github.com/titaniumnetwork-dev/Ultraviolet), a highly sophisticated proxy used for evading internet censorship or accessing websites in a controlled sandbox using the power of service-workers and more!
+Aurora provides a familiar browsing experience running entirely within a web page. It leverages advanced proxy technology to bypass censorship and access websites in a secure, sandboxed environment.
 
-## Deployment
+## 🌟 Features
 
-[![Run on Replit](https://binbashbanana.github.io/deploy-buttons/buttons/remade/replit.svg)](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Run-on-Replit)
-[![Deploy on Railway](https://binbashbanana.github.io/deploy-buttons/buttons/remade/railway.svg)](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Deploy-on-Railway)
-[![Remix on Glitch](https://binbashbanana.github.io/deploy-buttons/buttons/remade/glitch.svg)](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Remix-on-Glitch)
-[![Deploy to Koyeb](https://binbashbanana.github.io/deploy-buttons/buttons/remade/koyeb.svg)](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Deploy-to-Koyeb)
+- **Familiar UI**: Full tab management, URL bar, history, and bookmarks system.
+- **Scramjet Powered**: Uses high-performance proxying to render modern web content.
+- **Extension System**: robust API for modifying browser behavior, injecting CSS, and adding features.
+- **Game Mode**: A dedicated performance mode that strips away UI effects, disables logging, and enforces single-tab usage for maximum FPS in browser games.
+- **Marketplace**: Built-in extension marketplace to discover and install add-ons.
+- **Themes**: Support for Dark, Light, and custom CSS themes.
+- **DevTools**: Internal developer tools for inspecting the DOM, console logging, and network monitoring within the proxy context.
 
-If you are deploying to an alternative service or to a server, refer to [Deploy via terminal](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Deploy-via-terminal).
+## 🚀 Internal Pages
 
-Additional information such as [customizing your frontend](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki/Customizing-your-frontend) can be found on the [wiki](https://github.com/titaniumnetwork-dev/Ultraviolet-App/wiki).
+Navigate using the `aurora://` protocol:
 
-Support and updates can be found in our [Discord Server](discord.gg/unblock).
+- `aurora://home` - The new tab dashboard.
+- `aurora://settings` - Configure search engine, themes, and performance mode.
+- `aurora://extensions` - Manage installed extensions and browse the marketplace.
+- `aurora://history` - View and manage browsing history.
+- `aurora://bookmarks` - Access saved pages.
 
-> [!IMPORTANT]  
-> Until deployed on a domain with a valid SSL certificate, Firefox will not be able to load the site. Use chromium for testing on localhost
+## 🧩 Extensions
 
-### HTTP Transport
+Aurora features a custom extension architecture allowing you to write JavaScript plugins that interact with the browser internals.
 
-The example uses [EpoxyTransport](https://github.com/MercuryWorkshop/EpoxyTransport) to fetch proxied data encrypted.
+- **Install**: Load extensions via URL or by pasting code directly in the Extensions page.
+- **Develop**: Check out [EXTENSIONS.md](EXTENSIONS.md) for the complete API reference and examples.
 
-You may also want to use [CurlTransport](https://github.com/MercuryWorkshop/CurlTransport), a different way of fetching encrypted data, or [Bare-Client](https://github.com/MercuryWorkshop/Bare-as-module3), the legacy (unencrypted!) transport.
+## 🎮 Game Mode
 
-See the [bare-mux](https://github.com/MercuryWorkshop/bare-mux) documentation for more information.
+Found in **Settings**, Game Mode optimizes the browser for heavy web games:
+1. **Disables** background logs and network tracking.
+2. **Removes** expensive CSS filters (blur) and shadows.
+3. **Enforces** a single active tab to dedicate resources to the game.
+4. **Optimizes** iframe rendering layers.
+
+## 🛠️ Deployment & Usage
+
+### Prerequisites
+- Node.js 18+
+
+### Running Locally
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Start the server:
+   ```bash
+   npm start
+   ```
+
+3. Access the browser at `http://localhost:8080`.
+
+## 📜 Credits
+
+- **Aurora Browser**: Developed by Firewall Freedom by Sirco.
+- **Scramjet**: The underlying proxy technology powering the browsing experience.
