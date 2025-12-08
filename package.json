@@ -8,9 +8,6 @@
 		"node": ">=16.0.0"
 	},
 	"scripts": {
-		"dev": "vite",
-		"build": "vite build",
-		"preview": "vite preview",
 		"start": "node src/index.js",
 		"format": "prettier --config .prettierrc.js --write .",
 		"lint": "eslint ./src/",
@@ -33,12 +30,8 @@
 		"ws": "^8.18.3"
 	},
 	"devDependencies": {
-		"@vitejs/plugin-react": "^5.1.1",
 		"eslint": "^9.39.1",
-		"prettier": "^3.7.3",
-		"react": "^19.2.1",
-		"react-dom": "^19.2.1",
-		"vite": "^7.2.6"
+		"prettier": "^3.7.3"
 	},
 	"packageManager": "pnpm@9.12.2"
 }
