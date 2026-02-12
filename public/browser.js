@@ -3144,7 +3144,7 @@ function toggleDevTools(show = null) {
 }
 
 function switchDevToolsTab(panelId) {
-  const panels = document.querySelectorAll(".devtools-panel");
+  const panels = document.querySelectorAll(".devtools-pane");
   let targetPanel = null;
 
   // 1. Hide all panels
@@ -3616,7 +3616,15 @@ function toggleMainMenu() {
         incognitoItem.style.display = hasIncognito ? "flex" : "none";
     }
 
-    menu.classList.toggle("hidden");
+    const shouldOpen = menu.classList.contains("hidden");
+    menu.classList.toggle("hidden", !shouldOpen);
+
+    if (shouldOpen && elements.menuBtn) {
+      const rect = elements.menuBtn.getBoundingClientRect();
+      menu.style.right = "auto";
+      menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+      menu.style.left = `${Math.max(8, Math.round(rect.right - menu.offsetWidth))}px`;
+    }
   }
 }
 

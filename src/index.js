@@ -29,7 +29,7 @@ requiredDirs.forEach(({ path, name }) => {
 const publicPath = fileURLToPath(new URL("../public/", import.meta.url));
 
 // Detect Dev Environment (Codespaces or Local Development)
-const IS_DEV = process.env.CODESPACES === 'true' || process.env.NODE_ENV === 'development';
+const IS_DEV = process.env.CODESPACES === 'false' || process.env.NODE_ENV === 'production';
 
 const TURNSTILE_SECRET = "0x4AAAAAACFRVeaaQ0ZyNngoBHHl6-Cvjok";
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";

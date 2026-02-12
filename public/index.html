@@ -37,18 +37,6 @@
   <div id="browser-ui" style="display: none;">
     <!-- Browser Chrome UI -->
     <div class="browser-container">
-      <!-- Title Bar -->
-      <div class="title-bar">
-        <div class="window-controls">
-          <span class="window-btn close"></span>
-          <span class="window-btn minimize"></span>
-          <span class="window-btn maximize"></span>
-        </div>
-        <div class="title-text">Aurora Browser</div>
-        <div class="menu-bar">
-          <button id="menu-btn" class="menu-btn" title="Menu">☰</button>
-        </div>
-      </div>
 
       <!-- Tab Bar -->
       <div class="tab-bar">
@@ -75,8 +63,11 @@
           <div id="extensions-toolbar"></div>
           <button id="extensions-btn" class="toolbar-btn" title="Extensions">🧩</button>
           <button id="bookmark-btn" class="toolbar-btn" title="Bookmark this page">☆</button>
-          <button id="devtools-btn" class="toolbar-btn" title="DevTools (F12)">⚙</button>
+          <button id="devtools-btn" class="toolbar-btn" title="DevTools (F12)">
+            <img src="svg/devtools-window.svg" alt="DevTools" class="devtools-icon">
+          </button>
           <button id="settings-btn" class="toolbar-btn" title="Settings">⋮</button>
+          <button id="menu-btn" class="toolbar-btn menu-btn" title="Menu">☰</button>
         </div>
       </div>
 
