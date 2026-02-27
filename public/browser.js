@@ -16,7 +16,7 @@ const AURORA_PROTOCOL_MAPPINGS = {
 };
 
 const DEFAULT_SETTINGS = {
-  searchEngine: "https://www.google.com/search?q=%s",
+  searchEngine: "https://duckduckgo.com/?q=%s",
   theme: "dark",
   showBookmarksBar: true,
   performanceMode: false // Renamed from useV8Optimization
