@@ -6,6 +6,75 @@
   <title>Aurora Browser</title>
   <link rel="stylesheet" href="browser.css">
   <link rel="shortcut icon" href="favicon.ico">
+  <script>
+    // Iframe detection and security check
+    (function() {
+      const ALLOWED_ORIGINS = [
+        'https://universe.gace.space',
+        'http://universe.gace.space',
+        'https://localhost',
+        'http://localhost'
+      ];
+      
+      const isInIframe = window.self !== window.top;
+      const parentOrigin = window.parent.location.origin;
+      const isAllowedOrigin = ALLOWED_ORIGINS.some(origin => parentOrigin === origin || parentOrigin.includes('localhost'));
+      
+      if (!isInIframe) {
+        // Not in iframe - show error
+        document.documentElement.innerHTML = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Aurora Browser</title>
+            <style>
+              body { margin: 0; padding: 0; background: #202124; color: #e8eaed; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
+              .error-container { text-align: center; padding: 40px; }
+              h1 { font-size: 32px; margin-bottom: 10px; color: #f28b82; }
+              p { font-size: 18px; margin: 10px 0; color: #9aa0a6; }
+              .error-code { font-family: 'Courier New', monospace; font-size: 14px; color: #aecbfa; margin-top: 20px; }
+            </style>
+          </head>
+          <body>
+            <div class="error-container">
+              <h1>❌ Connection Refused</h1>
+              <p>aurora-browser-rfgy.gace.space refused to connect.</p>
+              <div class="error-code">ERR_IFRAME_REQUIRED: This application can only be accessed through an iframe from an authorized domain.</div>
+            </div>
+          </body>
+          </html>
+        `;
+        throw new Error('Aurora Browser must be accessed through an iframe from an authorized domain');
+      }
+      
+      if (!isAllowedOrigin && parentOrigin !== 'null') {
+        // In iframe but from unauthorized origin
+        document.documentElement.innerHTML = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Aurora Browser</title>
+            <style>
+              body { margin: 0; padding: 0; background: #202124; color: #e8eaed; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
+              .error-container { text-align: center; padding: 40px; }
+              h1 { font-size: 32px; margin-bottom: 10px; color: #f28b82; }
+              p { font-size: 18px; margin: 10px 0; color: #9aa0a6; }
+              .error-code { font-family: 'Courier New', monospace; font-size: 14px; color: #aecbfa; margin-top: 20px; }
+            </style>
+          </head>
+          <body>
+            <div class="error-container">
+              <h1>❌ Access Denied</h1>
+              <p>aurora-browser-rfgy.gace.space refused to connect.</p>
+              <div class="error-code">ERR_UNAUTHORIZED_ORIGIN: This domain is not authorized to embed this application.</div>
+            </div>
+          </body>
+          </html>
+        `;
+        throw new Error('Unauthorized parent origin: ' + parentOrigin);
+      }
+    })();
+  </script>
   <script src="/scram/scramjet.all.js"></script>
   <script src="baremux/index.js" defer></script>
   <script src="epoxy/index.js" defer></script>
